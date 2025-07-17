@@ -41,7 +41,7 @@
         .tower-option.selected { border-color: var(--accent-color); box-shadow: 0 0 15px var(--accent-color); }
         .tower-icon { font-size: 2em; }
         .tower-cost { font-weight: bold; color: var(--accent-color); }
-        .game-controls { display: flex; justify-content: center; align-items: center; gap: 15px; }
+        .game-controls { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 15px; }
         .game-button { font-family: var(--font-display); background-color: var(--accent-color); color: var(--text-color); border: none; padding: 12px 25px; border-radius: var(--border-radius); cursor: pointer; font-size: 1em; transition: all 0.3s ease; }
         .game-button:hover:not(:disabled) { background-color: #ff6b81; }
         .game-button:disabled { background-color: #555; cursor: not-allowed; }
@@ -85,6 +85,12 @@
                 <button class="game-button" id="stop-ai-btn">Stop AI</button>
                 <input type="range" id="num-children-slider" min="2" max="50" value="10">
                 <span id="num-children-label">Children: 10</span>
+                <input type="range" id="max-waves-slider" min="1" max="50" value="10">
+                <span id="max-waves-label">Max Waves: 10</span>
+                <input type="range" id="speed-slider" min="1" max="50" value="1">
+                <span id="speed-label">Speed: 1x</span>
+                <input type="range" id="connection-rate-slider" min="0" max="20" value="8">
+                <span id="connection-rate-label">Connection Rate: 8%</span>
             </div>
         </div>
     </div>
@@ -107,6 +113,9 @@
         const startNeatBtn = getEl('start-neat-btn');
         const messageModal = getEl('message-modal'), towerSelectionUI = getEl('tower-selection-ui');
         const numChildrenSlider = getEl('num-children-slider'), numChildrenLabel = getEl('num-children-label');
+        const maxWavesSlider = getEl('max-waves-slider'), maxWavesLabel = getEl('max-waves-label');
+        const speedSlider = getEl('speed-slider'), speedLabel = getEl('speed-label');
+        const connectionRateSlider = getEl('connection-rate-slider'), connectionRateLabel = getEl('connection-rate-label');
         const childrenContainer = getEl('children-container'), manualGameView = getEl('manual-game-view');
 
         // --- Color Management ---
@@ -146,6 +155,8 @@
         let aiManager;
         let mouse = { x: 0, y: 0 };
         let selectedTowerType;
+        let simulationSpeed = 1;
+        let connectionMutationRate = 0.08;
 
         // --- Classes ---
         class GameInstance {
@@ -172,6 +183,11 @@
                 this.damageDealt = 0;
                 this.moneyEarned = 0;
                 this.genomeActionIndex = 0; // For GA
+                // Spawning logic state
+                this.enemiesToSpawn = 0;
+                this.spawnCounter = 0;
+                this.spawnInterval = 30; // Corresponds to 500ms at 60fps (30 frames)
+                this.enemyHealthForWave = 0;
             }
 
             resizeCanvas() {
@@ -270,6 +286,16 @@
             update() {
                 if (this.gameState === 'gameOver') return;
 
+                // Handle spawning based on game frames, not real time
+                if (this.enemiesToSpawn > 0 && this.currentWaveActive) {
+                    this.spawnCounter++;
+                    if (this.spawnCounter >= this.spawnInterval) {
+                        this.enemies.push(new Enemy(this, this.enemyHealthForWave));
+                        this.enemiesToSpawn--;
+                        this.spawnCounter = 0;
+                    }
+                }
+
                 if (this.genome) { // If it's an AI instance
                     if (this.genome.actions) { // GA Genome
                         this.executeGenomeAction();
@@ -292,7 +318,7 @@
                 this.ui.health.textContent = this.health;
                 this.ui.money.textContent = this.money;
                 this.ui.wave.textContent = this.wave;
-                this.ui.fitness.textContent = this.fitness.toFixed(0);
+                this.ui.fitness.textContent = this.fitness.toFixed(3);
             }
 
             draw() {
@@ -322,21 +348,17 @@
 
             startNextWave() {
                 if (this.currentWaveActive || this.gameState === 'gameOver') return;
-                this.wave++; this.currentWaveActive = true;
-                const enemyCount = 5 + this.wave * 3;
-                const enemyHealth = 2 + (this.wave - 1) * 2;
-                for (let i = 0; i < enemyCount; i++) {
-                    setTimeout(() => {
-                        if (this.gameState !== 'gameOver') {
-                            this.enemies.push(new Enemy(this, enemyHealth));
-                        }
-                    }, i * 500);
-                }
+                this.wave++;
+                this.currentWaveActive = true;
+                this.enemiesToSpawn = 5 + this.wave * 3;
+                this.enemyHealthForWave = 2 + (this.wave - 1) * 2;
+                this.spawnCounter = 0;
             }
 
             checkGameStatus() {
                 if (this.health <= 0) this.gameState = 'gameOver';
-                if (this.currentWaveActive && this.enemies.length === 0) {
+                // A wave is complete only when all enemies for that wave have been spawned and defeated.
+                if (this.currentWaveActive && this.enemies.length === 0 && this.enemiesToSpawn === 0) {
                     this.currentWaveActive = false;
                     this.money += 100 + this.wave * 10;
                     if (this.genome && this.gameState !== 'gameOver') {
@@ -559,23 +581,25 @@
                 let bestFitness = this.population[0].fitness;
                 this.selectionAndReproduction();
                 this.generation++;
-                console.log(`GA Gen ${this.generation} complete. Best fitness: ${bestFitness.toFixed(0)}`);
+                console.log(`GA Gen ${this.generation} complete. Best fitness: ${bestFitness.toFixed(3)}`);
                 this.evaluating = false;
             }
 
             calculateFitness(instance) {
                 return new Promise(resolve => {
+                    const maxWaves = parseInt(maxWavesSlider.value, 10);
                     instance.resetState();
                     const simulationInterval = setInterval(() => {
-                        if (instance.wave > 15 || instance.gameState === 'gameOver') {
+                        if (instance.wave >= maxWaves || instance.gameState === 'gameOver') {
                             clearInterval(simulationInterval);
                             instance.fitness = instance.wave * 500 + instance.damageDealt * 2 + instance.money;
+                            instance.updateUI();
                             resolve();
                             return;
                         }
                         if (!instance.currentWaveActive) instance.startNextWave();
                         instance.update();
-                    }, 1000 / 60); 
+                    }, (1000 / 60) / simulationSpeed); 
                 });
             }
 
@@ -644,6 +668,8 @@
                 this.evaluating = false;
                 this.inputs = 6;
                 this.outputs = 5;
+                this.stagnationLimit = 15;
+                this.bestGenome = null;
                 this.createInitialPopulation();
             }
 
@@ -688,29 +714,48 @@
                 await Promise.all(evaluationPromises);
 
                 this.population.forEach((genome, i) => genome.fitness = this.instances[i].fitness);
+                this.population.sort((a, b) => b.fitness - a.fitness);
+
+                if (!this.bestGenome || this.population[0].fitness > this.bestGenome.fitness) {
+                    this.bestGenome = this.population[0].clone();
+                    this.bestGenome.fitness = this.population[0].fitness; // Manually copy the fitness to the hall of fame clone
+                    console.log(`New best genome in generation ${this.generation}! Fitness: ${this.bestGenome.fitness.toFixed(3)}`);
+                    this.bestGenome.print();
+                }
+
                 this.speciate();
                 this.reproduce();
 
                 this.generation++;
-                console.log(`NEAT Gen ${this.generation} complete. Species: ${this.species.length}`);
+                console.log(`NEAT Gen ${this.generation} complete. Species: ${this.species.length}. Best fitness so far: ${this.bestGenome.fitness.toFixed(3)}`);
                 this.evaluating = false;
             }
 
             calculateFitness(instance) {
                 return new Promise(resolve => {
+                    const maxWaves = parseInt(maxWavesSlider.value, 10);
                     instance.resetState();
+                    const startTime = Date.now();
                     const simulationInterval = setInterval(() => {
-                        if (instance.wave > 10 || instance.gameState === 'gameOver') {
+                        if (instance.wave >= maxWaves || instance.gameState === 'gameOver') {
                             clearInterval(simulationInterval);
-                            let fitness = instance.wave * 1000;
-                            fitness += instance.damageDealt;
-                            fitness += instance.moneyEarned * 2;
-                            instance.fitness = Math.max(1, fitness); // Ensure fitness is at least 1
+                            const timeSurvived = Date.now() - startTime;
+                            
+                            let fitness = instance.wave * 1000; 
+                            fitness += instance.damageDealt * 2;
+                            fitness += instance.money;
+                            fitness += instance.health * 10;
+                            fitness += timeSurvived / 100;
+                            
+                            instance.fitness = Math.max(0.001, fitness);
+                            instance.updateUI(); // Update UI with final score
                             resolve();
                             return;
                         }
                         if (!instance.currentWaveActive) instance.startNextWave();
-                        instance.update();
+                        for(let i = 0; i < simulationSpeed; i++) {
+                            instance.update();
+                        }
                     }, 1000 / 60);
                 });
             }
@@ -727,7 +772,7 @@
                         }
                     }
                     if (!foundSpecies) {
-                        this.species.push(new Species(genome));
+                        this.species.push(new Species(genome, this.generation));
                     }
                 });
                 this.species = this.species.filter(s => s.genomes.length > 0);
@@ -736,26 +781,54 @@
             reproduce() {
                 this.populationSize = parseInt(numChildrenSlider.value, 10);
                 const newPopulation = [];
-                this.species.forEach(s => {
-                    s.sortGenomes();
-                    if (s.genomes.length > 0) {
-                        newPopulation.push(s.genomes[0].clone());
-                    }
-                });
+                const randomNewCount = Math.floor(this.populationSize * 0.25);
 
-                while (newPopulation.length < this.populationSize) {
-                    if (this.species.length === 0) break;
-                    const species = this.species[Math.floor(Math.random() * this.species.length)];
-                    if (species.genomes.length === 0) continue;
-                    const parent1 = species.selectGenome();
-                    const parent2 = species.selectGenome();
-                    const child = Genome.crossover(parent1, parent2);
-                    child.mutate(this.innovation);
-                    newPopulation.push(child);
+                // Add the hall-of-fame genome, untouched
+                if (this.bestGenome) {
+                    newPopulation.push(this.bestGenome.clone());
                 }
+
+                // Add completely new random genomes to inject diversity
+                for (let i = 0; i < randomNewCount; i++) {
+                    if (newPopulation.length >= this.populationSize) break;
+                    newPopulation.push(new Genome(this.inputs, this.outputs, this.innovation));
+                }
+                
+                // Fill the rest with offspring from species
+                let totalAdjustedFitness = 0;
+                this.species.forEach(s => {
+                    s.calculateAdjustedFitness();
+                    s.checkStagnation(this.generation, this.stagnationLimit);
+                });
+                const fertileSpecies = this.species.filter(s => !s.stagnant);
+                fertileSpecies.forEach(s => { totalAdjustedFitness += s.totalAdjustedFitness; });
+
+                while (newPopulation.length < this.populationSize && fertileSpecies.length > 0) {
+                    let species = this.selectSpecies(fertileSpecies, totalAdjustedFitness);
+                    newPopulation.push(species.createOffspring(this.innovation));
+                }
+                
+                // If there's still space (e.g., all species died), fill with randoms
+                while (newPopulation.length < this.populationSize) {
+                    newPopulation.push(new Genome(this.inputs, this.outputs, this.innovation));
+                }
+
                 this.population = newPopulation;
                 this.setupPopulationInstances();
             }
+            
+            selectSpecies(speciesList, totalFitness) {
+                const r = Math.random() * totalFitness;
+                let cumulative = 0;
+                for (const s of speciesList) {
+                    cumulative += s.totalAdjustedFitness;
+                    if (r < cumulative) {
+                        return s;
+                    }
+                }
+                return speciesList[speciesList.length - 1];
+            }
+
 
             update() {
                 if (this.evaluating) {
@@ -771,13 +844,13 @@
                 this.nodes = new Map();
                 this.connections = new Map();
                 this.fitness = 0;
+                this.adjustedFitness = 0;
                 this.inputs = inputs;
                 this.outputs = outputs;
 
                 for (let i = 0; i < inputs; i++) this.nodes.set(i, new Node(i, 'input'));
                 for (let i = inputs; i < inputs + outputs; i++) this.nodes.set(i, new Node(i, 'output'));
                 
-                // Create a fully connected initial network
                 if (innovation && innovation.next) {
                     for (let i = 0; i < inputs; i++) {
                         for (let j = inputs; j < inputs + outputs; j++) {
@@ -790,7 +863,7 @@
 
             mutate(innovation) {
                 if (Math.random() < 0.8) this.mutateWeights();
-                if (Math.random() < 0.05) this.addConnection(innovation);
+                if (Math.random() < connectionMutationRate) this.addConnection(innovation);
                 if (Math.random() < 0.03) this.addNode(innovation);
             }
 
@@ -798,6 +871,12 @@
                 this.connections.forEach(c => {
                     if (Math.random() < 0.1) c.weight = Math.random() * 4 - 2;
                     else c.weight += (Math.random() * 0.2 - 0.1);
+                });
+            }
+            
+            mutateWeightsSlightly() {
+                this.connections.forEach(c => {
+                    c.weight += (Math.random() * 0.05 - 0.025); // very small perturbation
                 });
             }
 
@@ -833,14 +912,21 @@
 
             static crossover(parent1, parent2) {
                 const child = new Genome(parent1.inputs, parent1.outputs, null);
-                child.nodes = new Map(parent1.nodes); // Start with parent1's nodes
-                child.connections = new Map();
-                parent1.connections.forEach((c1, innov) => {
-                    const c2 = parent2.connections.get(innov);
-                    if (c2) {
+                
+                // Inherit all nodes from the fitter parent
+                const fitterParent = parent1.fitness >= parent2.fitness ? parent1 : parent2;
+                const lessFitParent = parent1.fitness >= parent2.fitness ? parent2 : parent1;
+                
+                fitterParent.nodes.forEach((node, id) => {
+                    child.nodes.set(id, node);
+                });
+
+                fitterParent.connections.forEach((c1, innov) => {
+                    const c2 = lessFitParent.connections.get(innov);
+                    if (c2) { // Matching gene
                         const childGene = Math.random() < 0.5 ? c1.clone() : c2.clone();
                         child.connections.set(innov, childGene);
-                    } else {
+                    } else { // Disjoint or excess gene from fitter parent
                         child.connections.set(innov, c1.clone());
                     }
                 });
@@ -849,9 +935,24 @@
             
             clone() {
                 const newGenome = new Genome(this.inputs, this.outputs, null);
+                newGenome.nodes = new Map();
                 this.nodes.forEach((node, id) => newGenome.nodes.set(id, node));
+                newGenome.connections = new Map();
                 this.connections.forEach((conn, id) => newGenome.connections.set(id, conn.clone()));
                 return newGenome;
+            }
+
+            print() {
+                console.log("--- Neural Network ---");
+                console.log(`Nodes: ${this.nodes.size}, Connections: ${this.connections.size}`);
+                const connectionsList = [];
+                this.connections.forEach(c => {
+                    if (c.enabled) {
+                        connectionsList.push(`[${c.from} -> ${c.to}, w: ${c.weight.toFixed(2)}]`);
+                    }
+                });
+                console.log(connectionsList.join(', '));
+                console.log("--------------------");
             }
         }
 
@@ -868,12 +969,17 @@
         }
 
         class Species {
-            constructor(firstGenome) {
+            constructor(firstGenome, generation) {
                 this.representative = firstGenome.clone();
                 this.genomes = [firstGenome];
+                this.bestFitness = firstGenome.fitness;
+                this.generationsSinceImprovement = 0;
+                this.stagnant = false;
+                this.totalAdjustedFitness = 0;
+                this.created = generation;
             }
             add(genome) { this.genomes.push(genome); }
-            reset() { this.genomes = []; }
+            reset() { this.genomes = []; this.totalAdjustedFitness = 0; }
             isCompatible(genome) {
                 const c1 = 1.0, c2 = 1.0, c3 = 0.4;
                 const N = Math.max(this.representative.connections.size, genome.connections.size);
@@ -885,13 +991,66 @@
                         weightDiff += Math.abs(c.weight - genome.connections.get(innov).weight);
                     } else { disjoint++; }
                 });
-                excess = genome.connections.size - matching - disjoint;
+                excess = genome.connections.size - matching;
                 if (matching > 0) weightDiff /= matching;
                 const compatibility = (c1 * excess / N) + (c2 * disjoint / N) + c3 * weightDiff;
                 return compatibility < 4.0;
             }
             sortGenomes() { this.genomes.sort((a, b) => b.fitness - a.fitness); }
-            selectGenome() { return this.genomes[Math.floor(Math.random() * this.genomes.length)]; }
+            
+            calculateAdjustedFitness() {
+                this.totalAdjustedFitness = 0;
+                this.genomes.forEach(g => {
+                    g.adjustedFitness = g.fitness / this.genomes.length;
+                    this.totalAdjustedFitness += g.adjustedFitness;
+                });
+            }
+
+            checkStagnation(currentGeneration, limit) {
+                this.sortGenomes();
+                if (this.genomes.length > 0 && this.genomes[0].fitness > this.bestFitness) {
+                    this.bestFitness = this.genomes[0].fitness;
+                    this.generationsSinceImprovement = 0;
+                } else {
+                    this.generationsSinceImprovement++;
+                }
+                // Don't remove very new species
+                if (currentGeneration - this.created < 5) return;
+                
+                if (this.generationsSinceImprovement > limit) {
+                    this.stagnant = true;
+                }
+            }
+
+            createOffspring(innovation) {
+                let child;
+                if (Math.random() < 0.25 || this.genomes.length === 1) { // 25% chance of mutation without crossover
+                    child = this.tournamentSelect().clone();
+                } else {
+                    const parent1 = this.tournamentSelect();
+                    const parent2 = this.tournamentSelect();
+                    child = Genome.crossover(parent1, parent2);
+                }
+                child.mutate(innovation);
+                return child;
+            }
+            
+            // Tournament selection: pick N random genomes and choose the best of them
+            tournamentSelect() {
+                const tournamentSize = 3;
+                if (this.genomes.length <= tournamentSize) {
+                    this.sortGenomes();
+                    return this.genomes[0]; // Not enough for a tournament, return the best
+                }
+                let best = null;
+                for (let i = 0; i < tournamentSize; i++) {
+                    const randomGenome = this.genomes[Math.floor(Math.random() * this.genomes.length)];
+                    if (best === null || randomGenome.fitness > best.fitness) {
+                        best = randomGenome;
+                    }
+                }
+                return best;
+            }
         }
 
         class Network {
@@ -1062,6 +1221,20 @@
 
         numChildrenSlider.addEventListener('input', () => {
             numChildrenLabel.textContent = `Children: ${numChildrenSlider.value}`;
+        });
+        
+        maxWavesSlider.addEventListener('input', () => {
+            maxWavesLabel.textContent = `Max Waves: ${maxWavesSlider.value}`;
+        });
+
+        speedSlider.addEventListener('input', () => {
+            simulationSpeed = parseInt(speedSlider.value, 10);
+            speedLabel.textContent = `Speed: ${simulationSpeed}x`;
+        });
+
+        connectionRateSlider.addEventListener('input', () => {
+            connectionMutationRate = parseInt(connectionRateSlider.value, 10) / 100;
+            connectionRateLabel.textContent = `Connection Rate: ${connectionRateSlider.value}%`;
         });
 
         startWaveBtn.addEventListener('click', () => {
