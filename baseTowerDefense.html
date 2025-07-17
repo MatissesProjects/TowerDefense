@@ -73,6 +73,9 @@
             </div>
             <div class="game-controls">
                 <button class="game-button" id="start-wave-btn">Start Next Wave</button>
+                <button class="game-button" id="start-ga-btn">Start GA</button>
+                <button class="game-button" id="start-neat-btn">Start NEAT</button>
+                <button class="game-button" id="stop-ai-btn">Stop AI</button>
             </div>
         </div>
         
@@ -95,6 +98,7 @@
         const canvas = getEl('gameCanvas'), ctx = canvas.getContext('2d');
         const healthEl = getEl('health'), moneyEl = getEl('money'), waveEl = getEl('wave'), enemiesLeftEl = getEl('enemies-left');
         const startWaveBtn = getEl('start-wave-btn'), restartGameBtn = getEl('restart-game-btn');
+        const startGaBtn = getEl('start-ga-btn'), startNeatBtn = getEl('start-neat-btn'), stopAiBtn = getEl('stop-ai-btn');
         const messageModal = getEl('message-modal'), towerControlsPanel = getEl('tower-controls'), towerSelectionUI = getEl('tower-selection-ui');
         
         // --- Color Management ---
@@ -106,20 +110,21 @@
         };
 
         // --- Game Data ---
-        const TILE_SIZE = 50; // Increased tile size for a smaller-feeling map
+        const TILE_SIZE = 40;
         const maps = [{
-            name: "Crossroads",
+            name: "The Long Road",
             layout: [
-                [0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
-                [0, 0, 1, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 2],
-                [0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-                [1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0],
-                [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0],
-                [1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0],
-                [0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0],
-                [0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0],
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 2],
             ]
         }];
         
@@ -138,14 +143,14 @@
                     damage:   { levels: [0.5, 1, 1.5, 2, 3],      costs: [40, 60, 90, 150] },
                     range:    { levels: [100, 115, 130, 145, 160],   costs: [30, 50, 80, 130] },
                     fireRate: { levels: [45, 40, 35, 30, 25],  costs: [50, 75, 110, 170] },
-                    slow:     { levels: [0.3, 0.35, 0.4, 0.45, 0.5], costs: [100, 150, 220, 300], duration: 120 } // 30% slow for 2s
+                    slow:     { levels: [1.3, 1.35, 1.4, 1.45, 1.5], costs: [10, 15, 22, 30], duration: 120 } // 30% slow for 2s
                 }
             }
         };
 
         // --- Game State ---
         let mapLayout, originalMapLayout, path;
-        let gameState, health, money, wave, enemies, towers, projectiles, currentWaveActive, selectedTower, mouse, selectedTowerType;
+        let gameState, health, money, wave, enemies, towers, projectiles, currentWaveActive, selectedTower, mouse, selectedTowerType, aiManager;
 
         // --- Classes ---
         class Enemy {
@@ -194,6 +199,7 @@
                 this.levels = { damage: 0, range: 0, fireRate: 0, slow: 0 };
                 this.width = TILE_SIZE * 0.8;
                 this.fireCooldown = 0; this.target = null;
+                this.priority = 'first'; // Default priority
                 this.updateStats();
             }
             updateStats() {
@@ -229,11 +235,35 @@
                 return Math.floor(totalCost * 0.7);
             }
             findTarget() {
-                if (this.target && this.target.health > 0 && Math.hypot(this.x - this.target.x, this.y - this.target.y) < this.range) return;
-                this.target = null; let closestDist = this.range;
-                for (const enemy of enemies) {
-                    const dist = Math.hypot(this.x - enemy.x, this.y - enemy.y);
-                    if (dist < closestDist) { closestDist = dist; this.target = enemy; }
+                const inRangeEnemies = enemies.filter(enemy => Math.hypot(this.x - enemy.x, this.y - enemy.y) < this.range);
+
+                if (inRangeEnemies.length === 0) {
+                    this.target = null;
+                    return;
+                }
+
+                if (this.target && this.target.health > 0 && inRangeEnemies.includes(this.target)) {
+                    return; // Keep current target if it's still valid and in range
+                }
+
+                switch (this.priority) {
+                    case 'first':
+                        this.target = inRangeEnemies.reduce((a, b) => (a.pathIndex > b.pathIndex ? a : b));
+                        break;
+                    case 'last':
+                        this.target = inRangeEnemies.reduce((a, b) => (a.pathIndex < b.pathIndex ? a : b));
+                        break;
+                    case 'closest':
+                        this.target = inRangeEnemies.reduce((a, b) => (Math.hypot(this.x - a.x, this.y - a.y) < Math.hypot(this.x - b.x, this.y - b.y) ? a : b));
+                        break;
+                    case 'fastest':
+                        this.target = inRangeEnemies.reduce((a, b) => (a.speed > b.speed ? a : b));
+                        break;
+                    case 'slowest':
+                        this.target = inRangeEnemies.reduce((a, b) => (a.speed < b.speed ? a : b));
+                        break;
+                    default:
+                        this.target = inRangeEnemies[0];
                 }
             }
             update() {
@@ -278,6 +308,282 @@
             }
         }
 
+        class RunAiType {
+            constructor() {
+                if (this.constructor === RunAiType) {
+                    throw new Error("Abstract classes can't be instantiated.");
+                }
+            }
+            update() {
+                throw new Error("Method 'update()' must be implemented.");
+            }
+        }
+
+        class GeneticAlgorithmAI extends RunAiType {
+            constructor() {
+                super();
+                console.log("GA AI Initialized");
+                this.populationSize = 50;
+                this.mutationRate = 0.1;
+                this.generation = 0;
+                this.population = this.createInitialPopulation();
+                // Add your GA initialization logic here
+            }
+
+            createInitialPopulation() {
+                const population = [];
+                const placementTiles = this.getValidPlacementTiles();
+
+                for (let i = 0; i < this.populationSize; i++) {
+                    const genome = [];
+                    const numberOfTowers = 5 + Math.floor(Math.random() * 10); // 5 to 14 towers
+                    const availableTiles = [...placementTiles];
+
+                    for (let j = 0; j < numberOfTowers; j++) {
+                        if (availableTiles.length === 0) break;
+
+                        const tileIndex = Math.floor(Math.random() * availableTiles.length);
+                        const tile = availableTiles.splice(tileIndex, 1)[0];
+                        const towerType = Math.random() < 0.5 ? 'turret' : 'frost';
+                        
+                        genome.push({
+                            tileX: tile.c,
+                            tileY: tile.r,
+                            type: towerType,
+                            upgrades: { damage: 0, range: 0, fireRate: 0, slow: 0 } // Start with no upgrades
+                        });
+                    }
+                    population.push({ genome, fitness: 0 });
+                }
+                return population;
+            }
+
+            getValidPlacementTiles() {
+                const tiles = [];
+                for (let r = 0; r < mapLayout.length; r++) {
+                    for (let c = 0; c < mapLayout[0].length; c++) {
+                        if (mapLayout[r][c] === 0) { // 0 is a valid placement tile
+                            tiles.push({ r, c });
+                        }
+                    }
+                }
+                return tiles;
+            }
+
+            async calculateFitness(genome) {
+                return new Promise(resolve => {
+                    const initialHealth = 100;
+                    const initialMoney = 200;
+                    let simulatedHealth = initialHealth;
+                    let simulatedMoney = initialMoney;
+
+                    // Setup the simulation environment
+                    const simulationTowers = genome.map(g => new Tower(g.tileX * TILE_SIZE + TILE_SIZE / 2, g.tileY * TILE_SIZE + TILE_SIZE / 2, g.tileX, g.tileY, g.type));
+                    let simulationEnemies = [];
+                    let simulationProjectiles = [];
+                    let simulationWave = 0;
+                    let simulationWaveActive = false;
+
+                    const runSimulation = () => {
+                        if (simulationWave > 10) { // End simulation after 10 waves
+                            const moneyMade = simulatedMoney - initialMoney;
+                            const livesLost = initialHealth - simulatedHealth;
+                            resolve(moneyMade - livesLost);
+                            return;
+                        }
+
+                        if (!simulationWaveActive) {
+                            simulationWave++;
+                            simulationWaveActive = true;
+                            const enemyCount = 5 + simulationWave * 3;
+                            const enemyHealth = 2 + (simulationWave - 1) * 2;
+                            for (let i = 0; i < enemyCount; i++) {
+                                const enemy = new Enemy();
+                                enemy.maxHealth = enemyHealth;
+                                enemy.health = enemyHealth;
+                                simulationEnemies.push(enemy);
+                            }
+                        }
+
+                        // This is a simplified simulation loop. A real implementation would need to manage projectiles and tower targeting.
+                        // For now, we'll just simulate enemy movement and health loss.
+                        simulationEnemies = simulationEnemies.filter(enemy => {
+                            if (enemy.pathIndex >= path.length - 1) {
+                                simulatedHealth -= 10;
+                                return false;
+                            }
+                            enemy.pathIndex++; // Simulate movement
+                            return true;
+                        });
+
+
+                        if (simulationEnemies.length === 0) {
+                            simulationWaveActive = false;
+                        }
+
+                        if (simulatedHealth > 0) {
+                            setTimeout(runSimulation, 5); // Run next simulation step faster
+                        } else {
+                            const moneyMade = simulatedMoney - initialMoney;
+                            const livesLost = initialHealth - simulatedHealth;
+                            resolve(moneyMade - livesLost);
+                        }
+                    };
+
+                    runSimulation();
+                });
+            }
+
+            update() {
+                if (this.evaluating) return; // Don't do anything while evaluating
+
+                this.evaluating = true;
+                this.evaluatePopulation().then(() => {
+                    this.selectionAndReproduction();
+                    this.generation++;
+                    console.log(`Generation ${this.generation} complete. Best fitness: ${this.population[0].fitness}`);
+                    this.evaluating = false;
+                });
+            }
+
+            async evaluatePopulation() {
+                for (const individual of this.population) {
+                    individual.fitness = await this.calculateFitness(individual.genome);
+                }
+                this.population.sort((a, b) => b.fitness - a.fitness);
+            }
+
+            selectionAndReproduction() {
+                const parents = this.population.slice(0, 2);
+                const newPopulation = [parents[0], parents[1]]; // Elitism
+
+                for (let i = 2; i < this.populationSize; i++) {
+                    const parentA = parents[0].genome;
+                    const parentB = parents[1].genome;
+                    const childGenome = this.crossover(parentA, parentB);
+                    this.mutate(childGenome);
+                    newPopulation.push({ genome: childGenome, fitness: 0 });
+                }
+                this.population = newPopulation;
+            }
+
+            crossover(parentA, parentB) {
+                const newGenome = [];
+                const maxLength = Math.max(parentA.length, parentB.length);
+                for (let i = 0; i < maxLength; i++) {
+                    if (i < parentA.length && (i >= parentB.length || Math.random() < 0.5)) {
+                        newGenome.push(parentA[i]);
+                    } else if (i < parentB.length) {
+                        newGenome.push(parentB[i]);
+                    }
+                }
+                return newGenome;
+            }
+
+            mutate(genome) {
+                for (let i = 0; i < genome.length; i++) {
+                    if (Math.random() < this.mutationRate) {
+                        // Mutate tower type
+                        genome[i].type = Math.random() < 0.5 ? 'turret' : 'frost';
+                    }
+                    if (Math.random() < this.mutationRate) {
+                        // Mutate upgrade
+                        const upgradeKeys = Object.keys(genome[i].upgrades);
+                        const randomUpgrade = upgradeKeys[Math.floor(Math.random() * upgradeKeys.length)];
+                        genome[i].upgrades[randomUpgrade]++;
+                    }
+                }
+            }
+        }
+
+        class NeatAI extends RunAiType {
+            constructor() {
+                super();
+                console.log("NEAT AI Initialized");
+                // Add your NEAT initialization logic here
+            }
+            update() {
+                // Add your NEAT decision-making logic here
+                console.log("NEAT AI is thinking...");
+            }
+        }
+
+        class AIManager {
+            constructor() {
+                this.active = false;
+                this.aiStrategy = null;
+                this.simulation = false;
+            }
+
+            start(mode) {
+                this.stop(); // Stop any existing AI
+                this.active = true;
+                if (mode === 'ga') {
+                    this.aiStrategy = new GeneticAlgorithmAI();
+                } else if (mode === 'neat') {
+                    this.aiStrategy = new NeatAI();
+                } else {
+                    this.active = false;
+                    console.error("Unknown AI mode:", mode);
+                    return;
+                }
+                console.log(`AI Manager started in ${mode} mode.`);
+            }
+
+            stop() {
+                if (this.active) {
+                    this.active = false;
+                    this.aiStrategy = null;
+                    console.log("AI Manager stopped.");
+                }
+            }
+
+            update() {
+                if (!this.active || !this.aiStrategy) return;
+                this.aiStrategy.update();
+            }
+        }""
+
+        class RunAIType {
+            constructor(aiType) {
+                this.aiType = aiType;
+            }
+
+            init() {
+                if (aiManager.active) {
+                    aiManager.stop();
+                }
+                aiManager.start(this.aiType);
+            }
+
+            update() {
+                aiManager.stop();
+                aiManager.start(this.aiType);
+            }
+        }
+
+        class GeneticAlgorithm extends RunAIType {
+            constructor() {
+                super('ga');
+                init();
+            }
+
+            update() {
+                console.log("Updating Genetic Algorithm...");
+            }
+        }
+
+        class NEAT extends RunAIType {
+            constructor() {
+                super('neat');
+                init();
+            }
+
+            update() {
+                console.log("Updating NEAT...");
+            }
+        }
+
         // --- Game Logic ---
         function setupLevel(levelIndex) {
             const level = maps[levelIndex];
@@ -288,6 +594,7 @@
         function init() {
             updateColors(); setupLevel(0);
             resizeCanvas(); calculatePath(); buildTowerSelector();
+            aiManager = new AIManager();
             resetGameState(); gameState = 'idle'; gameLoop();
         }
 
@@ -310,13 +617,19 @@
             const enemyHealth = 2 + (wave - 1) * 2;
             const enemyReward = 5 + wave;
             for (let i = 0; i < enemyCount; i++) { setTimeout(() => { if (gameState !== 'gameOver') {
-                const enemy = new Enemy(); enemy.maxHealth = enemyHealth; enemy.health = enemyHealth;
-                enemy.reward = enemyReward; enemy.originalSpeed = 1.5 + wave * 0.05;
+                const enemy = new Enemy();
+                enemy.maxHealth = enemyHealth;
+                enemy.health = enemyHealth;
+                enemy.reward = enemyReward;
+                enemy.originalSpeed = 1.5 + wave * 0.05;
                 enemies.push(enemy);
             } }, i * 500); }
         }
         
-        function updateUI() { healthEl.textContent = health; moneyEl.textContent = money; waveEl.textContent = wave; enemiesLeftEl.textContent = enemies.length; }
+        function updateUI() { 
+            if (aiManager.simulation) return;
+            healthEl.textContent = health; moneyEl.textContent = money; waveEl.textContent = wave; enemiesLeftEl.textContent = enemies.length; 
+        }
 
         function gameLoop() {
             if (gameState === 'gameOver') return;
@@ -328,6 +641,7 @@
             projectiles.forEach(p => { p.update(); p.draw(ctx); });
             enemies.forEach(enemy => { enemy.update(); enemy.draw(ctx); });
             enemies = enemies.filter(enemy => enemy.health > 0);
+            aiManager.update();
             drawPlacementPreview(); updateUI(); checkGameStatus();
         }
 
@@ -353,7 +667,11 @@
             }
         }
         
-        function gameOver(message) { gameState = 'gameOver'; messageModal.style.display = 'flex'; }
+        function gameOver(message) { 
+            if (aiManager.simulation) return;
+            gameState = 'gameOver'; 
+            messageModal.style.display = 'flex'; 
+        }
         
         // --- Tower & UI Management ---
         function deselectTower() { selectedTower = null; hideTowerControls(); }
@@ -395,7 +713,7 @@
                 const upgradePath = selectedTower.specs.upgrades[stat];
                 const currentLevel = selectedTower.levels[stat];
                 const isMaxLevel = currentLevel >= upgradePath.levels.length - 1;
-                const cost = isMaxLevel ? 'MAX' : `$${upgradePath.costs[currentLevel]}`;
+                const cost = isMaxLevel ? 'MAX' : `${upgradePath.costs[currentLevel]}`;
 
                 const btn = document.createElement('button');
                 btn.className = 'game-button';
@@ -405,11 +723,23 @@
                 panel.appendChild(btn);
             });
 
+            // Create priority button
+            const priorityBtn = document.createElement('button');
+            priorityBtn.className = 'game-button';
+            priorityBtn.innerHTML = `<span>Priority: ${selectedTower.priority.charAt(0).toUpperCase() + selectedTower.priority.slice(1)}</span>`;
+            priorityBtn.onclick = () => {
+                const priorities = ['first', 'last', 'closest', 'fastest', 'slowest'];
+                const currentIndex = priorities.indexOf(selectedTower.priority);
+                selectedTower.priority = priorities[(currentIndex + 1) % priorities.length];
+                showTowerControls();
+            };
+            panel.appendChild(priorityBtn);
+
             // Create sell button
             const sellBtn = document.createElement('button');
             sellBtn.className = 'game-button';
             sellBtn.style.backgroundColor = '#c0392b';
-            sellBtn.innerHTML = `<span>Sell</span> <span>$${selectedTower.getSellValue()}</span>`;
+            sellBtn.innerHTML = `<span>Sell</span> <span>${selectedTower.getSellValue()}</span>`;
             sellBtn.onclick = () => {
                 money += selectedTower.getSellValue();
                 mapLayout[selectedTower.tileY][selectedTower.tileX] = 0;
@@ -459,6 +789,9 @@
 
         startWaveBtn.addEventListener('click', () => { if(gameState === 'idle') gameState = 'playing'; startNextWave(); });
         restartGameBtn.addEventListener('click', () => { messageModal.style.display = 'none'; resetGameState(); gameState = 'idle'; gameLoop(); });
+        startGaBtn.addEventListener('click', () => aiManager.start('ga'));
+        startNeatBtn.addEventListener('click', () => aiManager.start('neat'));
+        stopAiBtn.addEventListener('click', () => aiManager.stop());
         canvas.addEventListener('click', handleCanvasClick);
         canvas.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('resize', () => { resizeCanvas(); if(selectedTower) showTowerControls(); });
