@@ -25,7 +25,7 @@
             background-color: var(--bg-color); color: var(--text-color); font-family: var(--font-body);
             display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box;
         }
-        .game-container { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%; max-width: 1200px; }
+        .game-container { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%; max-width: 100%; }
         .main-content { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%; }
         #manual-game-view { display: flex; flex-direction: row; gap: 20px; width: 100%; justify-content: center; }
         #gameCanvas { background-color: var(--primary-color); border-radius: var(--border-radius); box-shadow: 0 0 25px rgba(0, 0, 0, 0.5); cursor: pointer; flex-grow: 1; max-width: 800px; aspect-ratio: 4 / 3; width: 100%; height: auto; }
@@ -158,7 +158,7 @@
             }
 
             resetState() {
-                this.health = 100; this.money = 200; this.wave = 0;
+                this.health = 100; this.money = 200; this.wave = -1;
                 this.enemies = []; this.towers = []; this.projectiles = [];
                 this.currentWaveActive = false;
                 this.mapLayout = JSON.parse(JSON.stringify(originalMapLayout));
@@ -196,6 +196,7 @@
                             this.totalInvestment += upgradeCost;
                             tower.upgrade(action.stat);
                             this.genomeActionIndex++;
+                            console.log(`${this.genomeActionIndex} upgraded ${tower.type} at index ${action.towerIndex} (${action.stat}) for ${upgradeCost} money.`);
                         }
                     }
                 }
@@ -323,6 +324,7 @@
                 this.levels = { damage: 0, range: 0, fireRate: 0, slow: 0 };
                 this.width = TILE_SIZE * 0.8; this.fireCooldown = 0;
                 this.target = null; this.priority = 'first';
+                this.damageDealt = 0;
                 this.updateStats();
             }
             updateStats() {
@@ -365,6 +367,7 @@
             shoot() {
                 const slowEffect = this.slowAmount ? { amount: this.slowAmount, duration: this.slowDuration } : null;
                 this.game.projectiles.push(new Projectile(this.x, this.y, this.target, this.damage, slowEffect, this.game));
+                this.damageDealt += this.damage;
             }
             draw(ctx) {
                 ctx.fillStyle = this.specs.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.width / 2, 0, Math.PI * 2); ctx.fill();
@@ -406,7 +409,7 @@
                 const placementTiles = this.getValidPlacementTiles();
                 for (let i = 0; i < this.populationSize; i++) {
                     const genome = { actions: [] };
-                    const numActions = 10 + Math.floor(Math.random() * 15); // More actions
+                    const numActions = 10 + Math.floor(Math.random() * 30); // More actions
                     
                     // Ensure at least 6 initial tower placements
                     const initialPlacementCount = Math.min(6, placementTiles.length);
@@ -528,7 +531,8 @@
                         if (instance.wave > 15 || instance.gameState === 'gameOver') {
                             clearInterval(simulationInterval);
                             // Fitness = final money + total investment in towers + wave bonus
-                            instance.fitness = instance.money + instance.totalInvestment + (instance.wave * 100);
+                            let towerDamage = instance.towers.reduce((sum, tower) => sum + tower.damageDealt, 0);
+                            instance.fitness = instance.money + instance.totalInvestment + (instance.wave * 100) + (towerDamage * 10);
                             resolve();
                             return;
                         }
@@ -645,9 +649,11 @@
             requestAnimationFrame(gameLoop);
             if (aiManager.active) aiManager.update();
             else {
-                mainGame.update(); mainGame.draw();
-                drawPlacementPreview(); updateMainUI();
+                mainGame.update();
+                drawPlacementPreview();
+                updateMainUI();
             }
+            if (!aiManager.active) mainGame.draw();
         }
         
         function updateMainUI() {
