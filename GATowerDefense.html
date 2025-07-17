@@ -532,7 +532,7 @@
                             clearInterval(simulationInterval);
                             // Fitness = final money + total investment in towers + wave bonus
                             let towerDamage = instance.towers.reduce((sum, tower) => sum + tower.damageDealt, 0);
-                            instance.fitness = instance.money + instance.totalInvestment + (instance.wave * 100) + (towerDamage * 10);
+                            instance.fitness = (instance.money * -2) + instance.totalInvestment + (instance.wave * 100) + (towerDamage * 50);
                             resolve();
                             return;
                         }
