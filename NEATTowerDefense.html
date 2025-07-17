@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Tower Defense</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #1a1a2e;
+            --primary-color: #1a4d2e;
+            --secondary-color: #0f3460;
+            --accent-color: #e94560;
+            --text-color: #dcdcdc;
+            --path-color: #6b5a4d;
+            --font-display: 'Orbitron', sans-serif;
+            --font-body: 'Roboto', sans-serif;
+            --border-radius: 8px;
+            --tower-placement-allowed: rgba(46, 204, 113, 0.5);
+            --tower-placement-denied: rgba(231, 76, 60, 0.5);
+        }
+        body {
+            background-color: var(--bg-color); color: var(--text-color); font-family: var(--font-body);
+            display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box;
+        }
+        .game-container { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%; max-width: 100%; }
+        .main-content { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%; }
+        #manual-game-view { display: flex; flex-direction: row; gap: 20px; width: 100%; justify-content: center; }
+        #gameCanvas { background-color: var(--primary-color); border-radius: var(--border-radius); box-shadow: 0 0 25px rgba(0, 0, 0, 0.5); cursor: pointer; flex-grow: 1; max-width: 800px; aspect-ratio: 4 / 3; width: 100%; height: auto; }
+        .ui-panel { background-color: var(--primary-color); border-radius: var(--border-radius); padding: 20px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; gap: 15px; }
+        .stats-panel { width: 250px; flex-shrink: 0; }
+        .stats-panel h2, .controls-panel h2 { font-family: var(--font-display); text-align: center; margin: 0; color: var(--accent-color); border-bottom: 2px solid var(--secondary-color); padding-bottom: 10px; }
+        .stat-item { display: flex; justify-content: space-between; font-size: 1.1em; padding: 10px; background-color: var(--secondary-color); border-radius: 5px; }
+        .stat-item span:first-child { font-weight: bold; }
+        .controls-panel { width: 100%; }
+        .tower-selection { display: flex; gap: 15px; justify-content: center; margin-bottom: 15px; }
+        .tower-option { background-color: var(--secondary-color); border: 2px solid transparent; padding: 10px; border-radius: var(--border-radius); cursor: pointer; transition: all 0.3s ease; text-align: center; width: 120px; }
+        .tower-option:hover { border-color: var(--accent-color); transform: translateY(-3px); }
+        .tower-option.selected { border-color: var(--accent-color); box-shadow: 0 0 15px var(--accent-color); }
+        .tower-icon { font-size: 2em; }
+        .tower-cost { font-weight: bold; color: var(--accent-color); }
+        .game-controls { display: flex; justify-content: center; align-items: center; gap: 15px; }
+        .game-button { font-family: var(--font-display); background-color: var(--accent-color); color: var(--text-color); border: none; padding: 12px 25px; border-radius: var(--border-radius); cursor: pointer; font-size: 1em; transition: all 0.3s ease; }
+        .game-button:hover:not(:disabled) { background-color: #ff6b81; }
+        .game-button:disabled { background-color: #555; cursor: not-allowed; }
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); justify-content: center; align-items: center; }
+        .modal-content { background: var(--primary-color); padding: 30px; border-radius: var(--border-radius); text-align: center; box-shadow: 0 5px 30px rgba(0,0,0,0.5); border: 2px solid var(--accent-color); }
+        .modal-content h2 { font-family: var(--font-display); color: var(--accent-color); font-size: 2.5em; margin-top: 0; }
+        
+        #children-container { display: none; flex-wrap: wrap; gap: 15px; justify-content: center; width: 100%; }
+        .child-instance { border: 2px solid var(--secondary-color); border-radius: var(--border-radius); padding: 10px; background-color: var(--primary-color); display: flex; flex-direction: column; gap: 5px; align-items: center; }
+        .child-instance.best-performer { border-color: var(--accent-color); box-shadow: 0 0 15px var(--accent-color); }
+        .child-instance canvas { max-width: 240px; aspect-ratio: 4 / 3; border-radius: 5px; }
+        .child-stats { display: flex; flex-direction: column; font-size: 0.8em; width: 100%; gap: 3px; }
+        .child-stat-item { display: flex; justify-content: space-between; padding: 3px 6px; background-color: var(--secondary-color); border-radius: 3px; }
+
+        @media (max-width: 900px) { #manual-game-view { flex-direction: column; } .stats-panel { width: 100%; order: -1; } #gameCanvas { max-width: 100%; } }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <div class="main-content">
+            <div id="manual-game-view">
+                <canvas id="gameCanvas"></canvas>
+                <div class="ui-panel stats-panel">
+                    <h2>Game Stats</h2>
+                    <div class="stat-item"><span>❤️ Health:</span> <span id="health">100</span></div>
+                    <div class="stat-item"><span>💰 Money:</span> <span id="money">200</span></div>
+                    <div class="stat-item"><span>🌊 Wave:</span> <span id="wave">0</span></div>
+                    <div class="stat-item"><span>👻 Enemies:</span> <span id="enemies-left">0</span></div>
+                </div>
+            </div>
+            <div id="children-container"></div>
+        </div>
+        <div class="ui-panel controls-panel">
+            <h2>Build Towers</h2>
+            <div class="tower-selection" id="tower-selection-ui"></div>
+            <div class="game-controls">
+                <button class="game-button" id="start-wave-btn">Start Next Wave</button>
+                <button class="game-button" id="start-ga-btn">Start GA</button>
+                <button class="game-button" id="start-neat-btn">Start NEAT</button>
+                <button class="game-button" id="stop-ai-btn">Stop AI</button>
+                <input type="range" id="num-children-slider" min="2" max="50" value="10">
+                <span id="num-children-label">Children: 10</span>
+            </div>
+        </div>
+    </div>
+    
+    <div id="message-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="modal-title">Game Over</h2>
+            <p id="modal-text">You have been defeated!</p>
+            <button class="game-button" id="restart-game-btn">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const getEl = id => document.getElementById(id);
+        const mainCanvas = getEl('gameCanvas'), mainCtx = mainCanvas.getContext('2d');
+        const healthEl = getEl('health'), moneyEl = getEl('money'), waveEl = getEl('wave'), enemiesLeftEl = getEl('enemies-left');
+        const startWaveBtn = getEl('start-wave-btn'), restartGameBtn = getEl('restart-game-btn');
+        const startGaBtn = getEl('start-ga-btn'), stopAiBtn = getEl('stop-ai-btn');
+        const startNeatBtn = getEl('start-neat-btn');
+        const messageModal = getEl('message-modal'), towerSelectionUI = getEl('tower-selection-ui');
+        const numChildrenSlider = getEl('num-children-slider'), numChildrenLabel = getEl('num-children-label');
+        const childrenContainer = getEl('children-container'), manualGameView = getEl('manual-game-view');
+
+        // --- Color Management ---
+        const computedStyles = getComputedStyle(document.documentElement);
+        let pathColor, primaryColor;
+        const updateColors = () => {
+            pathColor = computedStyles.getPropertyValue('--path-color');
+            primaryColor = computedStyles.getPropertyValue('--primary-color');
+        };
+
+        // --- Game Data ---
+        const TILE_SIZE = 40;
+        const maps = [{
+            name: "The Long Road",
+            layout: [
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0],
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 2],
+            ]
+        }];
+        const TOWER_SPECS = {
+            turret: { name: 'Turret', icon: '🔫', cost: 100, color: '#3498db', upgrades: { damage: { levels: [1.5, 3, 5, 8, 12], costs: [50, 90, 150, 250] }, range: { levels: [120, 135, 150, 165, 180], costs: [40, 70, 110, 180] }, fireRate: { levels: [30, 26, 22, 18, 14], costs: [60, 100, 160, 240] } } },
+            frost: { name: 'Frost Tower', icon: '❄️', cost: 80, color: '#34d3d3', upgrades: { damage: { levels: [0.5, 1, 1.5, 2, 3], costs: [40, 60, 90, 150] }, range: { levels: [100, 115, 130, 145, 160], costs: [30, 50, 80, 130] }, fireRate: { levels: [45, 40, 35, 30, 25], costs: [50, 75, 110, 170] }, slow: { levels: [0.3, 0.35, 0.4, 0.45, 0.5], costs: [70, 90, 120, 160], duration: 120 } } }
+        };
+
+        // --- Global Game State ---
+        let mapLayout, originalMapLayout, path;
+        let mainGame; 
+        let aiManager;
+        let mouse = { x: 0, y: 0 };
+        let selectedTowerType;
+
+        // --- Classes ---
+        class GameInstance {
+            constructor(canvas, uiElements = null, genome = null) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.ui = uiElements;
+                this.genome = genome;
+                if (this.genome && this.genome.nodes) { // NEAT genome
+                    this.network = new Network(this.genome);
+                }
+                this.fitness = 0;
+                this.resetState();
+                this.resizeCanvas();
+            }
+
+            resetState() {
+                this.health = 100; this.money = 200; this.wave = -1;
+                this.enemies = []; this.towers = []; this.projectiles = [];
+                this.currentWaveActive = false;
+                this.mapLayout = JSON.parse(JSON.stringify(originalMapLayout));
+                this.gameState = 'idle';
+                this.totalInvestment = 0;
+                this.damageDealt = 0;
+                this.moneyEarned = 0;
+                this.genomeActionIndex = 0; // For GA
+            }
+
+            resizeCanvas() {
+                this.canvas.width = mapLayout[0].length * TILE_SIZE;
+                this.canvas.height = mapLayout.length * TILE_SIZE;
+            }
+            
+            // --- GA Specific Method ---
+            executeGenomeAction() {
+                if (this.genomeActionIndex >= this.genome.actions.length) return;
+                const action = this.genome.actions[this.genomeActionIndex];
+                
+                if (action.type === 'place') {
+                    const spec = TOWER_SPECS[action.towerType];
+                    if (this.money >= spec.cost && this.mapLayout[action.tileY][action.tileX] === 0) {
+                        this.money -= spec.cost;
+                        this.totalInvestment += spec.cost;
+                        const towerX = action.tileX * TILE_SIZE + TILE_SIZE / 2;
+                        const towerY = action.tileY * TILE_SIZE + TILE_SIZE / 2;
+                        this.towers.push(new Tower(towerX, towerY, action.tileX, action.tileY, action.towerType, this));
+                        this.mapLayout[action.tileY][action.tileX] = 3;
+                    }
+                } else if (action.type === 'upgrade') {
+                    if (action.towerIndex < this.towers.length) {
+                        const tower = this.towers[action.towerIndex];
+                        const upgradeCost = tower.getUpgradeCost(action.stat);
+                        if (upgradeCost && this.money >= upgradeCost) {
+                            this.money -= upgradeCost;
+                            this.totalInvestment += upgradeCost;
+                            tower.upgrade(action.stat);
+                        }
+                    }
+                }
+                this.genomeActionIndex++;
+            }
+
+
+            // --- NEAT Specific Methods ---
+            getNetworkInputs() {
+                const inputs = [];
+                inputs.push(this.money / 1000);
+                inputs.push(this.health / 100);
+                inputs.push(this.wave / 20);
+                let avgEnemyX = 0, avgEnemyY = 0;
+                if (this.enemies.length > 0) {
+                    this.enemies.forEach(e => { avgEnemyX += e.x; avgEnemyY += e.y; });
+                    avgEnemyX /= this.enemies.length;
+                    avgEnemyY /= this.enemies.length;
+                }
+                inputs.push(avgEnemyX / this.canvas.width);
+                inputs.push(avgEnemyY / this.canvas.height);
+                inputs.push(this.enemies.length / 50);
+                return inputs;
+            }
+
+            executeNetworkAction() {
+                if (!this.network) return;
+                const inputs = this.getNetworkInputs();
+                const outputs = this.network.activate(inputs);
+                const actionThreshold = 0.6; // Increased threshold
+                if (outputs[0] > actionThreshold) this.placeTower('turret', outputs[3], outputs[4]);
+                if (outputs[1] > actionThreshold) this.placeTower('frost', outputs[3], outputs[4]);
+                if (outputs[2] > actionThreshold) this.upgradeRandomTower();
+            }
+
+            placeTower(type, xRatio, yRatio) {
+                const spec = TOWER_SPECS[type];
+                if (this.money < spec.cost) return;
+                const tileX = Math.floor(xRatio * this.mapLayout[0].length);
+                const tileY = Math.floor(yRatio * this.mapLayout.length);
+                if (this.mapLayout[tileY] && this.mapLayout[tileY][tileX] === 0) {
+                    this.money -= spec.cost;
+                    this.totalInvestment += spec.cost;
+                    const towerX = tileX * TILE_SIZE + TILE_SIZE / 2;
+                    const towerY = tileY * TILE_SIZE + TILE_SIZE / 2;
+                    this.towers.push(new Tower(towerX, towerY, tileX, tileY, type, this));
+                    this.mapLayout[tileY][tileX] = 3;
+                }
+            }
+
+            upgradeRandomTower() {
+                if (this.towers.length === 0) return;
+                const tower = this.towers[Math.floor(Math.random() * this.towers.length)];
+                const upgrades = ['damage', 'range', 'fireRate'];
+                if (tower.type === 'frost') upgrades.push('slow');
+                const stat = upgrades[Math.floor(Math.random() * upgrades.length)];
+                const cost = tower.getUpgradeCost(stat);
+                if (cost && this.money >= cost) {
+                    this.money -= cost;
+                    this.totalInvestment += cost;
+                    tower.upgrade(stat);
+                }
+            }
+            
+            // --- Common Methods ---
+            update() {
+                if (this.gameState === 'gameOver') return;
+
+                if (this.genome) { // If it's an AI instance
+                    if (this.genome.actions) { // GA Genome
+                        this.executeGenomeAction();
+                    } else if (this.network) { // NEAT Genome
+                        this.executeNetworkAction();
+                    }
+                }
+                
+                this.towers.forEach(tower => tower.update());
+                this.projectiles = this.projectiles.filter(p => p.x > -100);
+                this.projectiles.forEach(p => p.update());
+                this.enemies.forEach(enemy => enemy.update());
+                this.enemies = this.enemies.filter(enemy => enemy.health > 0);
+                this.checkGameStatus();
+                if (this.ui) this.updateUI();
+            }
+            
+            updateUI() {
+                if (!this.ui.fitness) return; // Guard against main game UI
+                this.ui.health.textContent = this.health;
+                this.ui.money.textContent = this.money;
+                this.ui.wave.textContent = this.wave;
+                this.ui.fitness.textContent = this.fitness.toFixed(0);
+            }
+
+            draw() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.drawMap();
+                this.towers.forEach(tower => tower.draw(this.ctx));
+                this.projectiles.forEach(p => p.draw(this.ctx));
+                this.enemies.forEach(enemy => enemy.draw(this.ctx));
+                 if (this.gameState === 'gameOver') {
+                    this.ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                    this.ctx.fillStyle = 'white';
+                    this.ctx.font = `bold ${this.canvas.width/10}px "Orbitron"`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText('Finished', this.canvas.width / 2, this.canvas.height / 2);
+                }
+            }
+            
+            drawMap() {
+                for (let r = 0; r < this.mapLayout.length; r++) {
+                    for (let c = 0; c < this.mapLayout[0].length; c++) {
+                        this.ctx.fillStyle = this.mapLayout[r][c] >= 1 && this.mapLayout[r][c] !== 3 ? pathColor : primaryColor;
+                        this.ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    }
+                }
+            }
+
+            startNextWave() {
+                if (this.currentWaveActive || this.gameState === 'gameOver') return;
+                this.wave++; this.currentWaveActive = true;
+                const enemyCount = 5 + this.wave * 3;
+                const enemyHealth = 2 + (this.wave - 1) * 2;
+                for (let i = 0; i < enemyCount; i++) {
+                    setTimeout(() => {
+                        if (this.gameState !== 'gameOver') {
+                            this.enemies.push(new Enemy(this, enemyHealth));
+                        }
+                    }, i * 500);
+                }
+            }
+
+            checkGameStatus() {
+                if (this.health <= 0) this.gameState = 'gameOver';
+                if (this.currentWaveActive && this.enemies.length === 0) {
+                    this.currentWaveActive = false;
+                    this.money += 100 + this.wave * 10;
+                    if (this.genome && this.gameState !== 'gameOver') {
+                        this.startNextWave();
+                    }
+                }
+            }
+        }
+
+        class Enemy {
+            constructor(game, health) {
+                this.game = game; this.pathIndex = 0;
+                this.x = path[0].x; this.y = path[0].y;
+                this.width = TILE_SIZE * 0.5; this.height = TILE_SIZE * 0.5;
+                this.speed = 1.5 + game.wave * 0.05; this.originalSpeed = this.speed;
+                this.maxHealth = health; this.health = health;
+                this.reward = 5 + game.wave; this.slowUntil = 0;
+            }
+            update() {
+                if (Date.now() > this.slowUntil) { this.speed = this.originalSpeed; }
+                if (this.pathIndex < path.length - 1) {
+                    const target = path[this.pathIndex + 1];
+                    const dx = target.x - this.x, dy = target.y - this.y;
+                    const distance = Math.hypot(dx, dy);
+                    if (distance < this.speed) {
+                        this.pathIndex++; this.x = target.x; this.y = target.y;
+                    } else {
+                        this.x += (dx / distance) * this.speed; this.y += (dy / distance) * this.speed;
+                    }
+                } else {
+                    this.game.health -= 10;
+                    if (this.game.health < 0) this.game.health = 0;
+                    this.health = 0;
+                }
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.speed < this.originalSpeed ? '#5dade2' : '#c0392b';
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.width / 2, 0, Math.PI * 2); ctx.fill();
+                const healthBarWidth = this.width;
+                ctx.fillStyle = '#2c3e50'; ctx.fillRect(this.x - healthBarWidth / 2, this.y - this.height / 2 - 10, healthBarWidth, 5);
+                ctx.fillStyle = '#2ecc71'; ctx.fillRect(this.x - healthBarWidth / 2, this.y - this.height / 2 - 10, healthBarWidth * (this.health / this.maxHealth), 5);
+            }
+            takeDamage(damage, slowEffect) {
+                this.health -= damage;
+                this.game.damageDealt += damage;
+                if (slowEffect) {
+                    this.speed = this.originalSpeed * (1 - slowEffect.amount);
+                    this.slowUntil = Date.now() + slowEffect.duration;
+                }
+                if (this.health <= 0) {
+                    this.game.money += this.reward;
+                    this.game.moneyEarned += this.reward;
+                }
+            }
+        }
+
+        class Tower {
+            constructor(x, y, tileX, tileY, type, game) {
+                this.x = x; this.y = y; this.tileX = tileX; this.tileY = tileY;
+                this.type = type; this.game = game;
+                this.specs = TOWER_SPECS[type];
+                this.levels = { damage: 0, range: 0, fireRate: 0, slow: 0 };
+                this.width = TILE_SIZE * 0.8; this.fireCooldown = 0;
+                this.target = null; this.priority = 'first';
+                this.damageDealt = 0;
+                this.updateStats();
+            }
+            updateStats() {
+                this.damage = this.specs.upgrades.damage.levels[this.levels.damage];
+                this.range = this.specs.upgrades.range.levels[this.levels.range];
+                this.fireRate = this.specs.upgrades.fireRate.levels[this.levels.fireRate];
+                if (this.specs.upgrades.slow) {
+                    this.slowAmount = this.specs.upgrades.slow.levels[this.levels.slow];
+                    this.slowDuration = this.specs.upgrades.slow.duration;
+                }
+            }
+            getUpgradeCost(stat) {
+                const upgradePath = this.specs.upgrades[stat];
+                if (!upgradePath) return null;
+                const currentLevel = this.levels[stat];
+                if (currentLevel >= upgradePath.levels.length - 1) return null;
+                return upgradePath.costs[currentLevel];
+            }
+            upgrade(stat) {
+                const cost = this.getUpgradeCost(stat);
+                if (cost && this.game.money >= cost) {
+                    this.game.money -= cost;
+                    this.levels[stat]++;
+                    this.updateStats();
+                    return true;
+                }
+                return false;
+            }
+            findTarget() {
+                const inRangeEnemies = this.game.enemies.filter(enemy => Math.hypot(this.x - enemy.x, this.y - enemy.y) < this.range);
+                if (inRangeEnemies.length === 0) { this.target = null; return; }
+                if (this.target && this.target.health > 0 && inRangeEnemies.includes(this.target)) { return; }
+                this.target = inRangeEnemies.reduce((a, b) => (a.pathIndex > b.pathIndex ? a : b));
+            }
+            update() {
+                this.findTarget();
+                if (this.fireCooldown > 0) this.fireCooldown--;
+                if (this.target && this.fireCooldown <= 0) { this.shoot(); this.fireCooldown = this.fireRate; }
+            }
+            shoot() {
+                const slowEffect = this.slowAmount ? { amount: this.slowAmount, duration: this.slowDuration } : null;
+                this.game.projectiles.push(new Projectile(this.x, this.y, this.target, this.damage, slowEffect, this.game));
+                this.damageDealt += this.damage;
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.specs.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.width / 2, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#95a5a6'; ctx.beginPath(); ctx.arc(this.x, this.y, this.width / 4, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+
+        class Projectile {
+            constructor(startX, startY, target, damage, slowEffect, game) {
+                this.x = startX; this.y = startY; this.target = target;
+                this.damage = damage; this.slowEffect = slowEffect; this.game = game;
+                this.speed = 10; this.size = 4;
+            }
+            update() {
+                if (!this.target || this.target.health <= 0) { this.x = -1000; return; }
+                const dx = this.target.x - this.x, dy = this.target.y - this.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist < this.speed) {
+                    this.target.takeDamage(this.damage, this.slowEffect);
+                    this.x = -1000;
+                } else { this.x += (dx / dist) * this.speed; this.y += (dy / dist) * this.speed; }
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.slowEffect ? '#aed6f1' : '#f1c40f';
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+
+        class GeneticAlgorithmAI {
+            constructor() {
+                this.populationSize = parseInt(numChildrenSlider.value, 10);
+                this.mutationRate = 0.2;
+                this.generation = 0;
+                this.population = []; this.evaluating = false;
+                this.createInitialPopulation();
+            }
+
+            createInitialPopulation() {
+                const placementTiles = this.getValidPlacementTiles();
+                for (let i = 0; i < this.populationSize; i++) {
+                    const genome = { actions: [] };
+                    const numActions = 10 + Math.floor(Math.random() * 30);
+                    for (let j = 0; j < numActions; j++) {
+                        genome.actions.push(this.createRandomAction(placementTiles));
+                    }
+                    this.population.push({ genome, fitness: 0 });
+                }
+                this.setupPopulationInstances();
+            }
+
+            createRandomAction(placementTiles) {
+                if (Math.random() < 0.6) {
+                    const tile = placementTiles[Math.floor(Math.random() * placementTiles.length)];
+                    return { type: 'place', towerType: Math.random() < 0.5 ? 'turret' : 'frost', tileX: tile.c, tileY: tile.r };
+                } else {
+                    const upgradeStats = ['damage', 'range', 'fireRate', 'slow'];
+                    return { type: 'upgrade', towerIndex: Math.floor(Math.random() * 15), stat: upgradeStats[Math.floor(Math.random() * upgradeStats.length)] };
+                }
+            }
+            
+            setupPopulationInstances() {
+                childrenContainer.innerHTML = '';
+                this.instances = this.population.map((individual, index) => {
+                    const instanceContainer = document.createElement('div');
+                    instanceContainer.className = 'child-instance';
+                    const canvas = document.createElement('canvas');
+                    instanceContainer.appendChild(canvas);
+                    const statsContainer = document.createElement('div');
+                    statsContainer.className = 'child-stats';
+                    statsContainer.innerHTML = `
+                        <div class="child-stat-item"><span>❤️ H:</span> <span id="health-${index}">100</span></div>
+                        <div class="child-stat-item"><span>💰 M:</span> <span id="money-${index}">200</span></div>
+                        <div class="child-stat-item"><span>🌊 W:</span> <span id="wave-${index}">0</span></div>
+                        <div class="child-stat-item"><span>⭐ F:</span> <span id="fitness-${index}">0</span></div>
+                    `;
+                    instanceContainer.appendChild(statsContainer);
+                    childrenContainer.appendChild(instanceContainer);
+                    const uiElements = {
+                        health: getEl(`health-${index}`), money: getEl(`money-${index}`),
+                        wave: getEl(`wave-${index}`), fitness: getEl(`fitness-${index}`),
+                        container: instanceContainer
+                    };
+                    return new GameInstance(canvas, uiElements, individual.genome);
+                });
+            }
+
+            getValidPlacementTiles() {
+                const tiles = [];
+                for (let r = 0; r < originalMapLayout.length; r++) {
+                    for (let c = 0; c < originalMapLayout[0].length; c++) {
+                        if (originalMapLayout[r][c] === 0) tiles.push({ r, c });
+                    }
+                }
+                return tiles;
+            }
+
+            async runEvaluation() {
+                this.evaluating = true;
+                const evaluationPromises = this.instances.map(instance => this.calculateFitness(instance));
+                await Promise.all(evaluationPromises);
+                
+                for(let i = 0; i < this.instances.length; i++) {
+                    this.population[i].fitness = this.instances[i].fitness;
+                }
+
+                this.population.sort((a, b) => b.fitness - a.fitness);
+                
+                this.instances.forEach(inst => inst.ui.container.classList.remove('best-performer'));
+                const bestInstance = this.instances.find(inst => inst.fitness === this.population[0].fitness);
+                if(bestInstance) bestInstance.ui.container.classList.add('best-performer');
+
+                let bestFitness = this.population[0].fitness;
+                this.selectionAndReproduction();
+                this.generation++;
+                console.log(`GA Gen ${this.generation} complete. Best fitness: ${bestFitness.toFixed(0)}`);
+                this.evaluating = false;
+            }
+
+            calculateFitness(instance) {
+                return new Promise(resolve => {
+                    instance.resetState();
+                    const simulationInterval = setInterval(() => {
+                        if (instance.wave > 15 || instance.gameState === 'gameOver') {
+                            clearInterval(simulationInterval);
+                            instance.fitness = instance.wave * 500 + instance.damageDealt * 2 + instance.money;
+                            resolve();
+                            return;
+                        }
+                        if (!instance.currentWaveActive) instance.startNextWave();
+                        instance.update();
+                    }, 1000 / 60); 
+                });
+            }
+
+            selectionAndReproduction() {
+                this.populationSize = parseInt(numChildrenSlider.value, 10);
+                const parents = this.population.slice(0, Math.max(2, Math.floor(this.population.length * 0.25)));
+                const newPopulation = [];
+                const eliteCount = Math.floor(this.populationSize * 0.1);
+                for(let i = 0; i < eliteCount && i < this.population.length; i++) {
+                    newPopulation.push({genome: JSON.parse(JSON.stringify(this.population[i].genome)), fitness: 0});
+                }
+
+                while (newPopulation.length < this.populationSize) {
+                    const parentA = parents[Math.floor(Math.random() * parents.length)].genome;
+                    const parentB = parents[Math.floor(Math.random() * parents.length)].genome;
+                    const childGenome = this.crossover(parentA, parentB);
+                    this.mutate(childGenome);
+                    newPopulation.push({ genome: childGenome, fitness: 0 });
+                }
+                this.population = newPopulation;
+                this.setupPopulationInstances();
+            }
+
+            crossover(parentA, parentB) {
+                const childActions = [];
+                const maxLength = Math.max(parentA.actions.length, parentB.actions.length);
+                for (let i = 0; i < maxLength; i++) {
+                    const action = (Math.random() < 0.5) ? parentA.actions[i] : parentB.actions[i];
+                    if (action) {
+                        childActions.push(JSON.parse(JSON.stringify(action)));
+                    }
+                }
+                return { actions: childActions };
+            }
+
+            mutate(genome) {
+                if (Math.random() < this.mutationRate) {
+                    genome.actions.splice(Math.floor(Math.random() * genome.actions.length), 0, this.createRandomAction(this.getValidPlacementTiles()));
+                }
+                if (Math.random() < this.mutationRate && genome.actions.length > 1) {
+                    genome.actions.splice(Math.floor(Math.random() * genome.actions.length), 1);
+                }
+                for (let i = 0; i < genome.actions.length; i++) {
+                    if (Math.random() < this.mutationRate) {
+                        genome.actions[i] = this.createRandomAction(this.getValidPlacementTiles());
+                    }
+                }
+            }
+            
+            update() {
+                if (this.evaluating) {
+                    this.instances.forEach(inst => inst.draw());
+                    return;
+                };
+                this.runEvaluation();
+            }
+        }
+        
+        class NEAT_AI {
+            constructor() {
+                this.populationSize = parseInt(numChildrenSlider.value, 10);
+                this.population = [];
+                this.species = [];
+                this.generation = 0;
+                this.innovation = { current: 0, next: function() { return this.current++; } };
+                this.evaluating = false;
+                this.inputs = 6;
+                this.outputs = 5;
+                this.createInitialPopulation();
+            }
+
+            createInitialPopulation() {
+                for (let i = 0; i < this.populationSize; i++) {
+                    const genome = new Genome(this.inputs, this.outputs, this.innovation);
+                    this.population.push(genome);
+                }
+                this.setupPopulationInstances();
+            }
+
+            setupPopulationInstances() {
+                childrenContainer.innerHTML = '';
+                this.instances = this.population.map((genome, index) => {
+                    const instanceContainer = document.createElement('div');
+                    instanceContainer.className = 'child-instance';
+                    const canvas = document.createElement('canvas');
+                    instanceContainer.appendChild(canvas);
+                    const statsContainer = document.createElement('div');
+                    statsContainer.className = 'child-stats';
+                    statsContainer.innerHTML = `
+                        <div class="child-stat-item"><span>🧬 Gen:</span> <span id="gen-${index}">${this.generation}</span></div>
+                        <div class="child-stat-item"><span>⭐ Fitness:</span> <span id="fitness-${index}">0</span></div>
+                        <div class="child-stat-item"><span>❤️ H:</span> <span id="health-${index}">100</span></div>
+                        <div class="child-stat-item"><span>💰 M:</span> <span id="money-${index}">200</span></div>
+                        <div class="child-stat-item"><span>🌊 W:</span> <span id="wave-${index}">0</span></div>
+                    `;
+                    instanceContainer.appendChild(statsContainer);
+                    childrenContainer.appendChild(instanceContainer);
+                    const uiElements = {
+                        health: getEl(`health-${index}`), money: getEl(`money-${index}`),
+                        wave: getEl(`wave-${index}`), fitness: getEl(`fitness-${index}`),
+                        container: instanceContainer
+                    };
+                    return new GameInstance(canvas, uiElements, genome);
+                });
+            }
+
+            async runEvaluation() {
+                this.evaluating = true;
+                const evaluationPromises = this.instances.map(instance => this.calculateFitness(instance));
+                await Promise.all(evaluationPromises);
+
+                this.population.forEach((genome, i) => genome.fitness = this.instances[i].fitness);
+                this.speciate();
+                this.reproduce();
+
+                this.generation++;
+                console.log(`NEAT Gen ${this.generation} complete. Species: ${this.species.length}`);
+                this.evaluating = false;
+            }
+
+            calculateFitness(instance) {
+                return new Promise(resolve => {
+                    instance.resetState();
+                    const simulationInterval = setInterval(() => {
+                        if (instance.wave > 10 || instance.gameState === 'gameOver') {
+                            clearInterval(simulationInterval);
+                            let fitness = instance.wave * 1000;
+                            fitness += instance.damageDealt;
+                            fitness += instance.moneyEarned * 2;
+                            instance.fitness = Math.max(1, fitness); // Ensure fitness is at least 1
+                            resolve();
+                            return;
+                        }
+                        if (!instance.currentWaveActive) instance.startNextWave();
+                        instance.update();
+                    }, 1000 / 60);
+                });
+            }
+
+            speciate() {
+                this.species.forEach(s => s.reset());
+                this.population.forEach(genome => {
+                    let foundSpecies = false;
+                    for (const s of this.species) {
+                        if (s.isCompatible(genome)) {
+                            s.add(genome);
+                            foundSpecies = true;
+                            break;
+                        }
+                    }
+                    if (!foundSpecies) {
+                        this.species.push(new Species(genome));
+                    }
+                });
+                this.species = this.species.filter(s => s.genomes.length > 0);
+            }
+
+            reproduce() {
+                this.populationSize = parseInt(numChildrenSlider.value, 10);
+                const newPopulation = [];
+                this.species.forEach(s => {
+                    s.sortGenomes();
+                    if (s.genomes.length > 0) {
+                        newPopulation.push(s.genomes[0].clone());
+                    }
+                });
+
+                while (newPopulation.length < this.populationSize) {
+                    if (this.species.length === 0) break;
+                    const species = this.species[Math.floor(Math.random() * this.species.length)];
+                    if (species.genomes.length === 0) continue;
+                    const parent1 = species.selectGenome();
+                    const parent2 = species.selectGenome();
+                    const child = Genome.crossover(parent1, parent2);
+                    child.mutate(this.innovation);
+                    newPopulation.push(child);
+                }
+                this.population = newPopulation;
+                this.setupPopulationInstances();
+            }
+
+            update() {
+                if (this.evaluating) {
+                    this.instances.forEach(inst => inst.draw());
+                    return;
+                }
+                this.runEvaluation();
+            }
+        }
+
+        class Genome {
+            constructor(inputs, outputs, innovation) {
+                this.nodes = new Map();
+                this.connections = new Map();
+                this.fitness = 0;
+                this.inputs = inputs;
+                this.outputs = outputs;
+
+                for (let i = 0; i < inputs; i++) this.nodes.set(i, new Node(i, 'input'));
+                for (let i = inputs; i < inputs + outputs; i++) this.nodes.set(i, new Node(i, 'output'));
+                
+                // Create a fully connected initial network
+                if (innovation && innovation.next) {
+                    for (let i = 0; i < inputs; i++) {
+                        for (let j = inputs; j < inputs + outputs; j++) {
+                            const newConnection = new Connection(i, j, Math.random() * 2 - 1, true, innovation.next());
+                            this.connections.set(newConnection.innovation, newConnection);
+                        }
+                    }
+                }
+            }
+
+            mutate(innovation) {
+                if (Math.random() < 0.8) this.mutateWeights();
+                if (Math.random() < 0.05) this.addConnection(innovation);
+                if (Math.random() < 0.03) this.addNode(innovation);
+            }
+
+            mutateWeights() {
+                this.connections.forEach(c => {
+                    if (Math.random() < 0.1) c.weight = Math.random() * 4 - 2;
+                    else c.weight += (Math.random() * 0.2 - 0.1);
+                });
+            }
+
+            addConnection(innovation) {
+                let attempts = 0;
+                while (attempts < 50) {
+                    attempts++;
+                    const node1 = this.nodes.get(Math.floor(Math.random() * this.nodes.size));
+                    const node2 = this.nodes.get(Math.floor(Math.random() * this.nodes.size));
+                    if (node2.type === 'input' || node1.id === node2.id) continue;
+                    let exists = false;
+                    for (const c of this.connections.values()) {
+                        if (c.from === node1.id && c.to === node2.id) { exists = true; break; }
+                    }
+                    if (exists) continue;
+                    const newConnection = new Connection(node1.id, node2.id, Math.random() * 2 - 1, true, innovation.next());
+                    this.connections.set(newConnection.innovation, newConnection);
+                    return;
+                }
+            }
+
+            addNode(innovation) {
+                if (this.connections.size === 0) return;
+                const connection = Array.from(this.connections.values())[Math.floor(Math.random() * this.connections.size)];
+                connection.enabled = false;
+                const newNode = new Node(this.nodes.size, 'hidden');
+                this.nodes.set(newNode.id, newNode);
+                const newConnection1 = new Connection(connection.from, newNode.id, 1, true, innovation.next());
+                const newConnection2 = new Connection(newNode.id, connection.to, connection.weight, true, innovation.next());
+                this.connections.set(newConnection1.innovation, newConnection1);
+                this.connections.set(newConnection2.innovation, newConnection2);
+            }
+
+            static crossover(parent1, parent2) {
+                const child = new Genome(parent1.inputs, parent1.outputs, null);
+                child.nodes = new Map(parent1.nodes); // Start with parent1's nodes
+                child.connections = new Map();
+                parent1.connections.forEach((c1, innov) => {
+                    const c2 = parent2.connections.get(innov);
+                    if (c2) {
+                        const childGene = Math.random() < 0.5 ? c1.clone() : c2.clone();
+                        child.connections.set(innov, childGene);
+                    } else {
+                        child.connections.set(innov, c1.clone());
+                    }
+                });
+                return child;
+            }
+            
+            clone() {
+                const newGenome = new Genome(this.inputs, this.outputs, null);
+                this.nodes.forEach((node, id) => newGenome.nodes.set(id, node));
+                this.connections.forEach((conn, id) => newGenome.connections.set(id, conn.clone()));
+                return newGenome;
+            }
+        }
+
+        class Node {
+            constructor(id, type) { this.id = id; this.type = type; }
+        }
+
+        class Connection {
+            constructor(from, to, weight, enabled, innovation) {
+                this.from = from; this.to = to; this.weight = weight;
+                this.enabled = enabled; this.innovation = innovation;
+            }
+            clone() { return new Connection(this.from, this.to, this.weight, this.enabled, this.innovation); }
+        }
+
+        class Species {
+            constructor(firstGenome) {
+                this.representative = firstGenome.clone();
+                this.genomes = [firstGenome];
+            }
+            add(genome) { this.genomes.push(genome); }
+            reset() { this.genomes = []; }
+            isCompatible(genome) {
+                const c1 = 1.0, c2 = 1.0, c3 = 0.4;
+                const N = Math.max(this.representative.connections.size, genome.connections.size);
+                if (N === 0) return true;
+                let excess = 0, disjoint = 0, weightDiff = 0, matching = 0;
+                this.representative.connections.forEach((c, innov) => {
+                    if (genome.connections.has(innov)) {
+                        matching++;
+                        weightDiff += Math.abs(c.weight - genome.connections.get(innov).weight);
+                    } else { disjoint++; }
+                });
+                excess = genome.connections.size - matching - disjoint;
+                if (matching > 0) weightDiff /= matching;
+                const compatibility = (c1 * excess / N) + (c2 * disjoint / N) + c3 * weightDiff;
+                return compatibility < 4.0;
+            }
+            sortGenomes() { this.genomes.sort((a, b) => b.fitness - a.fitness); }
+            selectGenome() { return this.genomes[Math.floor(Math.random() * this.genomes.length)]; }
+        }
+
+        class Network {
+            constructor(genome) {
+                this.nodes = new Map();
+                this.inputs = [];
+                this.outputs = [];
+                genome.nodes.forEach(node => {
+                    this.nodes.set(node.id, { ...node, value: 0, inputs: [] });
+                    if (node.type === 'input') this.inputs.push(node.id);
+                    if (node.type === 'output') this.outputs.push(node.id);
+                });
+                genome.connections.forEach(conn => {
+                    if (conn.enabled && this.nodes.has(conn.to) && this.nodes.has(conn.from)) {
+                        this.nodes.get(conn.to).inputs.push({ from: conn.from, weight: conn.weight });
+                    }
+                });
+            }
+            activate(inputValues) {
+                this.nodes.forEach(n => n.value = 0);
+                this.inputs.forEach((id, i) => { if(this.nodes.has(id)) this.nodes.get(id).value = inputValues[i]; });
+                
+                // Simple feed-forward activation for now
+                this.nodes.forEach(node => {
+                    if (node.type !== 'input') {
+                        let sum = 0;
+                        node.inputs.forEach(input => {
+                            sum += this.nodes.get(input.from).value * input.weight;
+                        });
+                        node.value = this.sigmoid(sum);
+                    }
+                });
+                
+                return this.outputs.map(id => this.nodes.get(id).value);
+            }
+            sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+        }
+
+        class AIManager {
+            constructor() { this.active = false; this.aiStrategy = null; }
+            start(mode) {
+                this.stop(); this.active = true;
+                manualGameView.style.display = 'none';
+                childrenContainer.style.display = 'flex';
+                if (mode === 'ga') {
+                    this.aiStrategy = new GeneticAlgorithmAI();
+                    console.log("using ga");
+                }
+                else if (mode === 'neat') {
+                    this.aiStrategy = new NEAT_AI();
+                    console.log("using neat");
+                }
+                else { this.active = false; console.error("Unknown AI mode:", mode); return; }
+            }
+            stop() {
+                this.active = false; this.aiStrategy = null;
+                manualGameView.style.display = 'flex';
+                childrenContainer.style.display = 'none';
+                childrenContainer.innerHTML = '';
+            }
+            update() { if (!this.active || !this.aiStrategy) return; this.aiStrategy.update(); }
+        }
+
+        // --- Game Logic ---
+        function setupLevel(levelIndex) {
+            const level = maps[levelIndex];
+            originalMapLayout = JSON.parse(JSON.stringify(level.layout));
+            mapLayout = JSON.parse(JSON.stringify(originalMapLayout));
+        }
+
+        function init() {
+            updateColors(); setupLevel(0); calculatePath(); buildTowerSelector();
+            aiManager = new AIManager();
+            mainGame = new GameInstance(mainCanvas, { health: healthEl, money: moneyEl, wave: waveEl, enemiesLeft: enemiesLeftEl });
+            mainGame.resizeCanvas();
+            gameLoop();
+        }
+
+        function calculatePath() {
+            path = []; let startPos;
+            for (let r = 0; r < originalMapLayout.length; r++) { for (let c = 0; c < originalMapLayout[0].length; c++) { if ((originalMapLayout[r][c] === 1 || originalMapLayout[r][c] === 2) && (r === 0 || c === 0 || r === originalMapLayout.length - 1 || c === originalMapLayout[0].length - 1)) { startPos = { r, c }; break; } } if (startPos) break; }
+            if (!startPos) { console.error("No starting point found!"); return; }
+            let current = startPos; let visited = new Set(); visited.add(`${current.r},${current.c}`);
+            while (true) {
+                path.push({ x: current.c * TILE_SIZE + TILE_SIZE / 2, y: current.r * TILE_SIZE + TILE_SIZE / 2 });
+                if (originalMapLayout[current.r][current.c] === 2) break;
+                const neighbors = [{ r: current.r - 1, c: current.c }, { r: current.r + 1, c: current.c }, { r: current.r, c: current.c - 1 }, { r: current.r, c: current.c + 1 }];
+                let foundNext = false;
+                for (const n of neighbors) { if (n.r >= 0 && n.r < originalMapLayout.length && n.c >= 0 && n.c < originalMapLayout[0].length && (originalMapLayout[n.r][n.c] === 1 || originalMapLayout[n.r][n.c] === 2) && !visited.has(`${n.r},${n.c}`)) { current = n; visited.add(`${current.r},${current.c}`); foundNext = true; break; } }
+                if (!foundNext) break;
+            }
+        }
+
+        function gameLoop() {
+            requestAnimationFrame(gameLoop);
+            if (aiManager.active) {
+                aiManager.update();
+            } else {
+                mainGame.update();
+                mainGame.draw();
+                drawPlacementPreview();
+                updateMainUI();
+            }
+        }
+        
+        function updateMainUI() {
+            healthEl.textContent = mainGame.health;
+            moneyEl.textContent = mainGame.money;
+            waveEl.textContent = mainGame.wave;
+            enemiesLeftEl.textContent = mainGame.enemies.length;
+        }
+
+        function drawPlacementPreview() {
+            if (mainGame.gameState === 'gameOver' || !selectedTowerType) return;
+            const tileX = Math.floor(mouse.x / TILE_SIZE), tileY = Math.floor(mouse.y / TILE_SIZE);
+            if (tileX < 0 || tileX >= mapLayout[0].length || tileY < 0 || tileY >= mapLayout.length) return;
+            const towerSpec = TOWER_SPECS[selectedTowerType];
+            const canPlace = mainGame.mapLayout[tileY][tileX] === 0 && mainGame.money >= towerSpec.cost;
+            
+            const tempCtx = mainGame.ctx; // Draw on the main canvas
+            tempCtx.fillStyle = canPlace ? 'var(--tower-placement-allowed)' : 'var(--tower-placement-denied)';
+            tempCtx.fillRect(tileX * TILE_SIZE, tileY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
+
+        function buildTowerSelector() {
+            towerSelectionUI.innerHTML = '';
+            Object.keys(TOWER_SPECS).forEach(type => {
+                const spec = TOWER_SPECS[type];
+                const el = document.createElement('div');
+                el.className = 'tower-option'; el.dataset.towerType = type;
+                el.innerHTML = `<div class="tower-icon">${spec.icon}</div><div>${spec.name}</div><div class="tower-cost">Cost: ${spec.cost}</div>`;
+                el.addEventListener('click', () => selectTowerType(type));
+                towerSelectionUI.appendChild(el);
+            });
+            selectTowerType(Object.keys(TOWER_SPECS)[0]);
+        }
+
+        function selectTowerType(type) {
+            selectedTowerType = type;
+            document.querySelectorAll('.tower-option').forEach(el => el.classList.toggle('selected', el.dataset.towerType === type));
+        }
+
+        // --- Event Handlers ---
+        function handleCanvasClick(event) {
+            if (aiManager.active || mainGame.gameState === 'gameOver') return;
+            if (mainGame.gameState === 'idle') mainGame.gameState = 'playing';
+            const rect = mainCanvas.getBoundingClientRect();
+            const scaleX = mainCanvas.width / rect.width, scaleY = mainCanvas.height / rect.height;
+            const x = (event.clientX - rect.left) * scaleX, y = (event.clientY - rect.top) * scaleY;
+            const tileX = Math.floor(x / TILE_SIZE), tileY = Math.floor(y / TILE_SIZE);
+            if (!selectedTowerType || tileX < 0 || tileX >= mapLayout[0].length || tileY < 0 || tileY >= mapLayout.length) return;
+            if (mainGame.mapLayout[tileY][tileX] === 0) {
+                const cost = TOWER_SPECS[selectedTowerType].cost;
+                if (mainGame.money >= cost) {
+                    mainGame.money -= cost;
+                    const towerX = tileX * TILE_SIZE + TILE_SIZE / 2, towerY = tileY * TILE_SIZE + TILE_SIZE / 2;
+                    mainGame.towers.push(new Tower(towerX, towerY, tileX, tileY, selectedTowerType, mainGame));
+                    mainGame.mapLayout[tileY][tileX] = 3;
+                }
+            }
+        }
+
+        function handleMouseMove(event) {
+            const rect = mainCanvas.getBoundingClientRect();
+            const scaleX = mainCanvas.width / rect.width, scaleY = mainCanvas.height / rect.height;
+            mouse.x = (event.clientX - rect.left) * scaleX; mouse.y = (event.clientY - rect.top) * scaleY;
+        }
+
+        numChildrenSlider.addEventListener('input', () => {
+            numChildrenLabel.textContent = `Children: ${numChildrenSlider.value}`;
+        });
+
+        startWaveBtn.addEventListener('click', () => {
+            if (mainGame.gameState === 'idle') mainGame.gameState = 'playing';
+            mainGame.startNextWave();
+        });
+        
+        restartGameBtn.addEventListener('click', () => {
+            messageModal.style.display = 'none';
+            mainGame.resetState();
+        });
+
+        startGaBtn.addEventListener('click', () => aiManager.start('ga'));
+        startNeatBtn.addEventListener('click', () => aiManager.start('neat'));
+        stopAiBtn.addEventListener('click', () => aiManager.stop());
+        mainCanvas.addEventListener('click', handleCanvasClick);
+        mainCanvas.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('resize', () => { mainGame.resizeCanvas(); });
+
+        init();
+    </script>
+</body>
+</html>
